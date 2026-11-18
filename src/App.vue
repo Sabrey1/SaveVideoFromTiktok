@@ -7,6 +7,7 @@ const message = ref('')
 const photoPost = ref(null)
 const videoPost = ref(null)
 const downloading = ref(false)
+const downloadingPhoto = ref(null)
 
 function clearResults() {
   photoPost.value = null
@@ -26,6 +27,19 @@ async function readApiJson(response) {
   if (!response.ok) throw new Error(await response.text())
   if (!type.includes('application/json')) throw new Error('The download service returned an unexpected response.')
   return response.json()
+}
+
+function postApi(path, body) {
+  return fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(readApiJson)
+}
+
+function openDownload(url) {
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.rel = 'noreferrer'
+  document.body.appendChild(anchor)
+  anchor.click()
+  anchor.remove()
 }
 
 async function pasteLink() {
@@ -63,8 +77,7 @@ async function download() {
     const id = url.pathname.match(/\/(\d+)\/?$/)[1]
     loading.value = true
     try {
-      const response = await fetch(`/api/photos?id=${encodeURIComponent(id)}`)
-      const result = await readApiJson(response)
+      const result = await postApi('/api/photos', { id })
       photoPost.value = { id, count: result.count }
       message.value = `${result.count} ${result.count === 1 ? 'photo is' : 'photos are'} ready to download.`
     } catch (error) { message.value = error.message || 'Could not load photos. Please try again.' }
@@ -74,8 +87,7 @@ async function download() {
   loading.value = true
   try {
     const id = url.pathname.match(/\/(\d+)\/?$/)[1]
-    const response = await fetch(`/api/video-info?id=${encodeURIComponent(id)}`)
-    videoPost.value = { ...(await readApiJson(response)), url: url.href, id }
+    videoPost.value = { ...(await postApi('/api/video-info', { id })), id }
   } catch (error) { message.value = error.message || 'Could not load video details. Please try again.' }
   finally { loading.value = false }
 }
@@ -86,23 +98,23 @@ async function downloadVideo() {
   message.value = ''
   downloading.value = true
   try {
-    const response = await fetch(`/api/download?url=${encodeURIComponent(post.url)}`)
-    if ((response.headers.get('content-type') || '').includes('text/html')) throw new Error('The download service is not configured on this host. Please contact the site administrator.')
-    if (!response.ok) throw new Error(await response.text())
-    if (!(response.headers.get('content-type') || '').startsWith('video/')) throw new Error('The download service did not return a video.')
-    const blob = await response.blob()
-    if (!blob.size) throw new Error('The downloaded video was empty. Please try again.')
-    const objectUrl = URL.createObjectURL(blob)
-    const anchor = document.createElement('a')
-    anchor.href = objectUrl
-    anchor.download = `tiktok-${post.id}.mp4`
-    document.body.appendChild(anchor)
-    anchor.click()
-    anchor.remove()
-    setTimeout(() => URL.revokeObjectURL(objectUrl), 60000)
+    const result = await postApi('/api/download', { id: post.id })
+    openDownload(result.downloadUrl)
     message.value = 'Your download has started.'
   } catch (error) { message.value = error.message || 'Download failed. Please try again.' }
   finally { downloading.value = false }
+}
+
+async function downloadPhoto(index) {
+  if (!photoPost.value || downloadingPhoto.value !== null) return
+  message.value = ''
+  downloadingPhoto.value = index
+  try {
+    const result = await postApi('/api/photo-file', { id: photoPost.value.id, index })
+    openDownload(result.downloadUrl)
+    message.value = 'Your photo download has started.'
+  } catch (error) { message.value = error.message || 'Photo download failed. Please try again.' }
+  finally { downloadingPhoto.value = null }
 }
 </script>
 
@@ -130,10 +142,12 @@ async function downloadVideo() {
             </button>
             <p v-if="message" class="message" role="status">{{ message }}</p>
             <p class="form-help">Use a public TikTok video or photo link, including mobile share links.</p>
+            <p class="form-help">Loading details uses 1 credit; each video uses 2 credits and each photo uses 1 credit.</p>
+            <p class="form-help">Post IDs are sent to IGramAPI to retrieve media.</p>
           </form>
           <section v-if="videoPost" class="video-result" aria-label="Video details">
             <div class="video-info">
-              <img :src="videoPost.cover" alt="Video cover" class="video-cover" />
+              <img v-if="videoPost.cover" :src="videoPost.cover" alt="Video cover" class="video-cover" />
               <div class="video-details">
                 <h2>{{ videoPost.title || 'TikTok video' }}</h2>
                 <p v-if="videoPost.author" class="video-author">@{{ videoPost.author }}</p>
@@ -146,8 +160,8 @@ async function downloadVideo() {
             <h2>Photos</h2>
             <div class="photo-grid">
               <article v-for="index in photoPost.count" :key="index" class="photo-item">
-                <img :src="`/api/photo-file?id=${photoPost.id}&index=${index - 1}`" :alt="`Photo ${index}`" loading="lazy" />
-                <a :href="`/api/photo-file?id=${photoPost.id}&index=${index - 1}&download=1`">Download photo {{ index }}</a>
+                <span class="photo-label">Photo {{ index }}</span>
+                <button type="button" class="photo-download" :disabled="downloadingPhoto !== null" @click="downloadPhoto(index - 1)">{{ downloadingPhoto === index - 1 ? 'Preparing...' : 'Download photo' }}</button>
               </article>
             </div>
           </section>

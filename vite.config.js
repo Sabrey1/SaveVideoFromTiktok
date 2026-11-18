@@ -1,14 +1,19 @@
 import vue from '@vitejs/plugin-vue'
-import { defineConfig } from 'vite'
+import { defineConfig, loadEnv } from 'vite'
 import { Readable } from 'node:stream'
 import { handleApi } from './server/api.js'
 
-function localApi() {
+function localApi(env) {
   function configure(server) {
     server.middlewares.use(async (req, res, next) => {
       if (!req.url?.startsWith('/api/')) return next()
       try {
-        const response = await handleApi(new Request(new URL(req.url, 'http://localhost'), { method: req.method }))
+        const request = new Request(new URL(req.url, `http://${req.headers.host}`), {
+          method: req.method,
+          headers: req.headers,
+          ...(req.method !== 'GET' && req.method !== 'HEAD' ? { body: Readable.toWeb(req), duplex: 'half' } : {}),
+        })
+        const response = await handleApi(request, env)
         res.writeHead(response.status, Object.fromEntries(response.headers))
         if (!response.body) return res.end()
         const stream = Readable.fromWeb(response.body)
@@ -21,4 +26,4 @@ function localApi() {
   return { name: 'local-api', configureServer: configure, configurePreviewServer: configure }
 }
 
-export default defineConfig({ plugins: [vue(), localApi()] })
+export default defineConfig(({ mode }) => ({ plugins: [vue(), localApi(loadEnv(mode, process.cwd(), 'IGRAMAPI_'))] }))
