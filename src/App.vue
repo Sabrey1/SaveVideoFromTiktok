@@ -8,11 +8,19 @@ const photoPost = ref(null)
 const videoPost = ref(null)
 const downloading = ref(false)
 const downloadingPhoto = ref(null)
+const videoMessage = ref('')
+const readyVideoUrl = ref('')
+const photoMessage = ref('')
+const readyPhotoUrls = ref({})
 
 function clearResults() {
   photoPost.value = null
   videoPost.value = null
   message.value = ''
+  videoMessage.value = ''
+  readyVideoUrl.value = ''
+  photoMessage.value = ''
+  readyPhotoUrls.value = {}
 }
 
 function formatCount(value) {
@@ -31,15 +39,6 @@ async function readApiJson(response) {
 
 function postApi(path, body) {
   return fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(readApiJson)
-}
-
-function openDownload(url) {
-  const anchor = document.createElement('a')
-  anchor.href = url
-  anchor.rel = 'noreferrer'
-  document.body.appendChild(anchor)
-  anchor.click()
-  anchor.remove()
 }
 
 async function pasteLink() {
@@ -95,25 +94,31 @@ async function download() {
 async function downloadVideo() {
   if (!videoPost.value) return
   const post = videoPost.value
-  message.value = ''
+  videoMessage.value = ''
+  readyVideoUrl.value = ''
   downloading.value = true
   try {
     const result = await postApi('/api/download', { id: post.id })
-    openDownload(result.downloadUrl)
-    message.value = 'Your download has started.'
-  } catch (error) { message.value = error.message || 'Download failed. Please try again.' }
+    if (videoPost.value?.id === post.id) {
+      readyVideoUrl.value = result.downloadUrl
+      videoMessage.value = 'Your video is ready. Tap Save video to download it.'
+    }
+  } catch (error) { if (videoPost.value?.id === post.id) videoMessage.value = error.message || 'Download failed. Please try again.' }
   finally { downloading.value = false }
 }
 
 async function downloadPhoto(index) {
   if (!photoPost.value || downloadingPhoto.value !== null) return
-  message.value = ''
+  const id = photoPost.value.id
+  photoMessage.value = ''
   downloadingPhoto.value = index
   try {
-    const result = await postApi('/api/photo-file', { id: photoPost.value.id, index })
-    openDownload(result.downloadUrl)
-    message.value = 'Your photo download has started.'
-  } catch (error) { message.value = error.message || 'Photo download failed. Please try again.' }
+    const result = await postApi('/api/photo-file', { id, index })
+    if (photoPost.value?.id === id) {
+      readyPhotoUrls.value = { ...readyPhotoUrls.value, [index]: result.downloadUrl }
+      photoMessage.value = `Photo ${index + 1} is ready. Tap Save photo to download it.`
+    }
+  } catch (error) { if (photoPost.value?.id === id) photoMessage.value = error.message || 'Photo download failed. Please try again.' }
   finally { downloadingPhoto.value = null }
 }
 </script>
@@ -154,16 +159,20 @@ async function downloadPhoto(index) {
                 <p class="video-stats"><span>{{ formatCount(videoPost.views) }} views</span><span>{{ formatCount(videoPost.comments) }} comments</span><span>{{ formatCount(videoPost.shares) }} shares</span></p>
               </div>
             </div>
-            <button type="button" class="download-button" :disabled="downloading" @click="downloadVideo">{{ downloading ? 'Downloading...' : 'Download' }}</button>
+            <button v-if="!readyVideoUrl" type="button" class="download-button" :disabled="downloading" @click="downloadVideo">{{ downloading ? 'Preparing video...' : 'Download' }}</button>
+            <a v-else class="download-button save-link" :href="readyVideoUrl" rel="noreferrer" download>Save video</a>
+            <p v-if="videoMessage" class="message" role="status">{{ videoMessage }}</p>
           </section>
           <section v-if="photoPost" class="photo-results" aria-label="Photos available for download">
             <h2>Photos</h2>
             <div class="photo-grid">
               <article v-for="index in photoPost.count" :key="index" class="photo-item">
                 <span class="photo-label">Photo {{ index }}</span>
-                <button type="button" class="photo-download" :disabled="downloadingPhoto !== null" @click="downloadPhoto(index - 1)">{{ downloadingPhoto === index - 1 ? 'Preparing...' : 'Download photo' }}</button>
+                <button v-if="!readyPhotoUrls[index - 1]" type="button" class="photo-download" :disabled="downloadingPhoto !== null" @click="downloadPhoto(index - 1)">{{ downloadingPhoto === index - 1 ? 'Preparing...' : 'Download photo' }}</button>
+                <a v-else class="photo-download save-link" :href="readyPhotoUrls[index - 1]" rel="noreferrer" download>Save photo</a>
               </article>
             </div>
+            <p v-if="photoMessage" class="message" role="status">{{ photoMessage }}</p>
           </section>
         </div>
       </section>

@@ -62,6 +62,7 @@ async function igramRequest(key, path, options = {}) {
     }
     if (response.status === 402 || response.status === 429) throw new ProviderError('The download service has reached its credit or request limit. Please try again later.', 429)
     if (response.status === 400 || response.status === 404 || response.status === 422) throw new ProviderError('This post or requested media is unavailable.', 404)
+    console.error('IGramAPI upstream error', { endpoint: path.split('?')[0], status: response.status })
     throw new ProviderError('The download service is temporarily unavailable.', 502)
   }
   return response.json()
