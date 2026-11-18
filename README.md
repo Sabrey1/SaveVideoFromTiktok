@@ -1,16 +1,22 @@
 # ClipSave
 
-A local TikTok video downloader built with Vue and Vite. The download endpoint runs as Vite middleware, so the static `dist` directory alone cannot download videos.
+A Vue application with a Cloudflare-compatible API for TikTok video details, video downloads, and photo downloads. Post IDs are sent to the third-party TikWM service. Availability depends on that service and TikTok.
 
-## Setup (Windows)
+## Local development
 
 ```powershell
 npm install
-python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
 npm run dev
 ```
 
-Open the local address printed by Vite. For a production build served locally, run `npm run build` and then `npm run preview`. On macOS or Linux, use `.venv/bin/python -m pip install -r requirements.txt` instead.
+Vite uses the same API implementation as the Cloudflare handlers. The API no longer requires Python or yt-dlp.
 
-The app accepts full public TikTok video and photo-post links. Post IDs are sent to the third-party TikWM service to load video details and find photos. The downloader depends on TikTok, yt-dlp, and the media service; some posts or requests may be unavailable, and no specific quality or watermark status is guaranteed. Short links are not supported. This server is intended for local use, not public deployment.
+## Cloudflare Pages
+
+Set the project root to this directory, the build command to `npm run build`, and the output directory to `dist`. Deploy the entire source project through Git integration or the Pages CLI: Cloudflare must compile the root `functions/` directory. Uploading only `dist` through the dashboard does not deploy Pages Functions.
+
+## Cloudflare Workers with static assets
+
+Configure the Worker entry point as `worker.js`, the assets directory as `dist`, the assets binding as `ASSETS`, and route `/api/*` to the Worker before static assets. Set SPA fallback for non-API paths. Build the assets with `npm run build`. `worker.js` and `server/api.js` must be included in the Worker deployment; uploading `dist` alone does not deploy the API.
+
+The Pages Functions and Worker are alternative ways to serve the API. Select the one attached to your domain; do not route the same domain to two separate deployments. Full public TikTok video and photo URLs are supported; short links are not.
