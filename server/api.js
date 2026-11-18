@@ -1,6 +1,8 @@
 const MAX_PHOTOS = 35
 const CDN_DOMAINS = ['tiktokcdn.com', 'tiktokcdn-us.com', 'tiktokcdn-eu.com', 'tiktokv.com']
 
+class UpstreamRateLimitError extends Error {}
+
 function error(message, status = 502) {
   return new Response(message, { status, headers: { 'Cache-Control': 'no-store' } })
 }
@@ -13,7 +15,16 @@ function mediaUrl(value) {
   } catch { return null }
 }
 
-async function getPost(id) {
+async function getPost(id, requestOrigin) {
+  // Reuse successful metadata briefly, especially for multi-photo posts.
+  const cache = globalThis.caches?.default
+  const cacheKey = new Request(new URL(`/__clipsave_media_cache/${id}`, requestOrigin))
+  if (cache) {
+    try {
+      const cached = await cache.match(cacheKey)
+      if (cached) return await cached.json()
+    } catch { /* The upstream still works if the cache is unavailable. */ }
+  }
   const url = new URL('https://www.tikwm.com/api/')
   url.searchParams.set('url', id)
   let lastError
@@ -22,9 +33,14 @@ async function getPost(id) {
       const response = await fetch(url, { signal: AbortSignal.timeout(20000), redirect: 'manual' })
       if (!response.ok) throw new Error(`Media service returned HTTP ${response.status}`)
       const result = await response.json()
-      if (result.code !== 0 || !result.data) throw new Error('Post unavailable')
+      if (result.code !== 0 && /limit/i.test(String(result.msg || ''))) throw new UpstreamRateLimitError('Media service rate limit reached')
+      if (result.code !== 0 || !result.data) throw new Error(`Post unavailable (service code: ${String(result.code).slice(0, 20)}; message: ${String(result.msg || '').slice(0, 120)})`)
+      if (cache) {
+        try { await cache.put(cacheKey, Response.json(result.data, { headers: { 'Cache-Control': 'public, max-age=60' } })) } catch { /* Caching is optional. */ }
+      }
       return result.data
     } catch (cause) {
+      if (cause instanceof UpstreamRateLimitError) throw cause
       lastError = cause
       if (attempt === 0) await new Promise(resolve => setTimeout(resolve, 500))
     }
@@ -48,7 +64,7 @@ export async function handleApi(request) {
   if (!['/api/video-info', '/api/photos', '/api/photo-file', '/api/download'].includes(url.pathname)) return error('Not found.', 404)
 
   try {
-    const post = await getPost(id)
+    const post = await getPost(id, url.origin)
     if (url.pathname === '/api/video-info') {
       if (post.images?.length) return error('This is a photo post.', 400)
       const count = value => Number.isFinite(Number(value)) && Number(value) >= 0 ? Number(value) : 0
@@ -80,6 +96,7 @@ export async function handleApi(request) {
     return new Response(media.body, { headers: { 'Content-Type': 'video/mp4', 'Content-Disposition': `attachment; filename="tiktok-${id}.mp4"`, 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' } })
   } catch (cause) {
     console.error('Media request failed', { route: url.pathname, error: cause instanceof Error ? cause.message : 'Unknown error' })
+    if (cause instanceof UpstreamRateLimitError) return error('The photo and video service has reached its daily limit. Please try again later.', 429)
     return error('Could not retrieve this post. Please try again later.')
   }
 }
