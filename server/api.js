@@ -35,12 +35,23 @@ class ProviderError extends Error {
 }
 
 async function igramRequest(key, path, options = {}) {
-  const response = await fetch(`https://api.igramapi.com${path}`, {
-    ...options,
-    headers: { Authorization: `Bearer ${key}`, Accept: 'application/json', ...(options.body ? { 'Content-Type': 'application/json' } : {}) },
-    redirect: 'manual',
-    signal: AbortSignal.timeout(30000),
-  })
+  let response
+  for (let attempt = 0; attempt < 2; attempt++) {
+    response = await fetch(`https://api.igramapi.com${path}`, {
+      ...options,
+      headers: { Authorization: `Bearer ${key}`, Accept: 'application/json', ...(options.body ? { 'Content-Type': 'application/json' } : {}) },
+      redirect: 'manual',
+      signal: AbortSignal.timeout(30000),
+    })
+    // Only retry explicit temporary service errors. Network errors are not retried
+    // because a paid request might already have succeeded upstream.
+    if (attempt === 0 && (response.status === 502 || response.status === 503)) {
+      await response.body?.cancel()
+      await new Promise(resolve => setTimeout(resolve, 1000))
+      continue
+    }
+    break
+  }
   if (!response.ok) {
     if (response.status === 401) throw new ProviderError('The download service API key is invalid or not authorized.', 503)
     if (response.status === 403) {

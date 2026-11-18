@@ -68,6 +68,30 @@ test('provider rate limits are surfaced without retrying paid requests', async (
   } finally { fetchMock.mock.restore() }
 })
 
+test('temporary upstream errors are retried once', async () => {
+  let calls = 0
+  const fetchMock = mock.method(globalThis, 'fetch', async () => {
+    calls++
+    return calls === 1
+      ? new Response('{}', { status: 502 })
+      : Response.json({ download_url: 'https://files.example.com/video.mp4', content_type: 'video/mp4' })
+  })
+  try {
+    const response = await handleApi(request('/api/download', { id: '123' }), env)
+    assert.equal(response.status, 200)
+    assert.equal(calls, 2)
+  } finally { fetchMock.mock.restore() }
+})
+
+test('transport errors are not retried for paid downloads', async () => {
+  const fetchMock = mock.method(globalThis, 'fetch', async () => { throw new Error('network error') })
+  try {
+    const response = await handleApi(request('/api/download', { id: '123' }), env)
+    assert.equal(response.status, 502)
+    assert.equal(fetchMock.mock.calls.length, 1)
+  } finally { fetchMock.mock.restore() }
+})
+
 test('mobile redirects may only reach TikTok post URLs', async () => {
   const fetchMock = mock.method(globalThis, 'fetch', async () => new Response(null, { status: 301, headers: { location: 'https://www.tiktok.com/@creator/photo/123?share=1' } }))
   try {
