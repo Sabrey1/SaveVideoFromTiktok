@@ -18,6 +18,16 @@ function formatCount(value) {
   return new Intl.NumberFormat(undefined, { notation: 'compact', maximumFractionDigits: 1 }).format(value)
 }
 
+async function readApiJson(response) {
+  const type = response.headers.get('content-type') || ''
+  if (type.includes('text/html')) {
+    throw new Error('The download service is not configured on this host. Please contact the site administrator.')
+  }
+  if (!response.ok) throw new Error(await response.text())
+  if (!type.includes('application/json')) throw new Error('The download service returned an unexpected response.')
+  return response.json()
+}
+
 async function pasteLink() {
   try { link.value = await navigator.clipboard.readText(); clearResults() }
   catch { message.value = 'Paste the link into the field using your keyboard.' }
@@ -38,8 +48,7 @@ async function download() {
     loading.value = true
     try {
       const response = await fetch(`/api/photos?id=${encodeURIComponent(id)}`)
-      if (!response.ok) throw new Error(await response.text())
-      const result = await response.json()
+      const result = await readApiJson(response)
       photoPost.value = { id, count: result.count }
       message.value = `${result.count} ${result.count === 1 ? 'photo is' : 'photos are'} ready to download.`
     } catch (error) { message.value = error.message || 'Could not load photos. Please try again.' }
@@ -50,8 +59,7 @@ async function download() {
   try {
     const id = url.pathname.match(/\/(\d+)\/?$/)[1]
     const response = await fetch(`/api/video-info?id=${encodeURIComponent(id)}`)
-    if (!response.ok) throw new Error(await response.text())
-    videoPost.value = { ...(await response.json()), url: url.href, id }
+    videoPost.value = { ...(await readApiJson(response)), url: url.href, id }
   } catch (error) { message.value = error.message || 'Could not load video details. Please try again.' }
   finally { loading.value = false }
 }
@@ -63,7 +71,9 @@ async function downloadVideo() {
   downloading.value = true
   try {
     const response = await fetch(`/api/download?url=${encodeURIComponent(post.url)}`)
+    if ((response.headers.get('content-type') || '').includes('text/html')) throw new Error('The download service is not configured on this host. Please contact the site administrator.')
     if (!response.ok) throw new Error(await response.text())
+    if (!(response.headers.get('content-type') || '').startsWith('video/')) throw new Error('The download service did not return a video.')
     const blob = await response.blob()
     if (!blob.size) throw new Error('The downloaded video was empty. Please try again.')
     const objectUrl = URL.createObjectURL(blob)
