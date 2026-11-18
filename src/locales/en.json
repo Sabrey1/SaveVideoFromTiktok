@@ -1,0 +1,54 @@
+{
+  "language": "Language",
+  "navigation": { "how": "How to use" },
+  "hero": { "title": "TikTok Downloader", "subtitle": "Paste a TikTok link to download a video or photos." },
+  "form": {
+    "label": "TikTok video or photo link",
+    "paste": "Paste",
+    "preparing": "Preparing your download...",
+    "continue": "Continue",
+    "help": "Use a public TikTok video or photo link, including mobile share links.",
+    "credits": "Loading details uses 1 credit; each video uses 2 credits and each photo uses 1 credit.",
+    "provider": "Post IDs are sent to IGramAPI to retrieve media."
+  },
+  "video": {
+    "details": "Video details", "cover": "Video cover", "fallbackTitle": "TikTok video",
+    "views": "{count} views", "comments": "{count} comments", "shares": "{count} shares",
+    "preparing": "Preparing video...", "download": "Download", "save": "Save video",
+    "ready": "Your video is ready. Tap Save video to download it."
+  },
+  "photo": {
+    "details": "Photos available for download", "title": "Photos", "label": "Photo {index}",
+    "preparing": "Preparing...", "download": "Download photo", "save": "Save photo",
+    "ready": "Photo {index} is ready. Tap Save photo to download it.",
+    "countReady": "{count} photos are ready to download.", "oneReady": "1 photo is ready to download."
+  },
+  "how": {
+    "title": "How to download a video", "copyTitle": "Copy the link",
+    "copyText": "Open the video on TikTok, select Share, and copy its link.",
+    "pasteTitle": "Paste it here", "pasteText": "Paste the full video or photo link into the field above.",
+    "continueTitle": "Continue", "continueText": "Download a video or choose photos to save."
+  },
+  "errors": {
+    "network": "Could not connect. Please try again.",
+    "paste": "Paste the link into the field using your keyboard.",
+    "completeLink": "Enter a complete TikTok post link.",
+    "invalidLink": "Enter a valid TikTok video or photo link.",
+    "resolve": "Could not resolve this TikTok share link. Please try again or use the full post link.",
+    "invalidResolved": "TikTok returned an invalid post link.",
+    "serviceMissing": "The download service is not configured on this host. Please contact the site administrator.",
+    "unexpected": "The download service returned an unexpected response.",
+    "keyMissing": "The download service API key has not been configured.",
+    "keyInvalid": "The download service API key is invalid or not authorized.",
+    "plan": "This request is not available on the configured API plan.",
+    "private": "This post is private or requires login.",
+    "limit": "The download service has reached its credit or request limit. Please try again later.",
+    "unavailable": "This post or requested media is unavailable.",
+    "temporary": "The download service is temporarily unavailable.",
+    "photosMissing": "No photos found for this post.",
+    "notVideo": "This is not a video post.",
+    "invalidFile": "The download service returned an invalid file link.",
+    "retrieve": "Could not retrieve this post. Please try again later.",
+    "generic": "Something went wrong. Please try again."
+  }
+}

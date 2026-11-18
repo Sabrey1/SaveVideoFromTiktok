@@ -1,5 +1,8 @@
 <script setup>
 import { ref } from 'vue'
+import { useI18n } from 'vue-i18n'
+
+const { t, locale } = useI18n()
 
 const link = ref('')
 const loading = ref(false)
@@ -24,16 +27,38 @@ function clearResults() {
 }
 
 function formatCount(value) {
-  return new Intl.NumberFormat(undefined, { notation: 'compact', maximumFractionDigits: 1 }).format(value)
+  return new Intl.NumberFormat(locale.value === 'kh' ? 'km-KH' : 'en', { notation: 'compact', maximumFractionDigits: 1 }).format(value)
 }
+
+const apiErrors = {
+  'The download service API key has not been configured.': 'errors.keyMissing',
+  'The download service API key is invalid or not authorized.': 'errors.keyInvalid',
+  'This request is not available on the configured API plan.': 'errors.plan',
+  'This post is private or requires login.': 'errors.private',
+  'The download service has reached its credit or request limit. Please try again later.': 'errors.limit',
+  'This post or requested media is unavailable.': 'errors.unavailable',
+  'The download service is temporarily unavailable.': 'errors.temporary',
+  'No photos found for this post.': 'errors.photosMissing',
+  'This is not a video post.': 'errors.notVideo',
+  'The download service returned an invalid file link.': 'errors.invalidFile',
+  'Could not retrieve this post. Please try again later.': 'errors.retrieve',
+  'Could not resolve this TikTok share link. Please try again or use the full post link.': 'errors.resolve',
+}
+
+function localizedError(key) {
+  return Object.assign(new Error(key), { i18nKey: key })
+}
+
+function notice(key, params = {}) { return { key, params } }
+function errorNotice(error) { return notice(error.i18nKey || 'errors.network') }
 
 async function readApiJson(response) {
   const type = response.headers.get('content-type') || ''
   if (type.includes('text/html')) {
-    throw new Error('The download service is not configured on this host. Please contact the site administrator.')
+    throw localizedError('errors.serviceMissing')
   }
-  if (!response.ok) throw new Error(await response.text())
-  if (!type.includes('application/json')) throw new Error('The download service returned an unexpected response.')
+  if (!response.ok) throw localizedError(apiErrors[await response.text()] || 'errors.generic')
+  if (!type.includes('application/json')) throw localizedError('errors.unexpected')
   return response.json()
 }
 
@@ -43,19 +68,19 @@ function postApi(path, body) {
 
 async function pasteLink() {
   try { link.value = await navigator.clipboard.readText(); clearResults() }
-  catch { message.value = 'Paste the link into the field using your keyboard.' }
+  catch { message.value = notice('errors.paste') }
 }
 
 async function download() {
   clearResults()
   let url
-  try { url = new URL(link.value.trim()) } catch { message.value = 'Enter a complete TikTok post link.'; return }
+  try { url = new URL(link.value.trim()) } catch { message.value = notice('errors.completeLink'); return }
   const postHosts = ['www.tiktok.com', 'tiktok.com', 'm.tiktok.com']
   const shortLink = (['vt.tiktok.com', 'vm.tiktok.com'].includes(url.hostname) && /^\/[A-Za-z0-9]+\/?$/.test(url.pathname)) ||
     (postHosts.includes(url.hostname) && /^\/t\/[A-Za-z0-9]+\/?$/.test(url.pathname))
   if (url.protocol !== 'https:' || url.username || url.password || url.port ||
       (!shortLink && (!postHosts.includes(url.hostname) || !/^\/@[\w.-]+\/(video|photo)\/\d{1,24}\/?$/.test(url.pathname)))) {
-    message.value = 'Enter a valid TikTok video or photo link.'
+    message.value = notice('errors.invalidLink')
     return
   }
   if (shortLink) {
@@ -64,10 +89,10 @@ async function download() {
       const response = await fetch(`/api/resolve?url=${encodeURIComponent(url.href)}`)
       const result = await readApiJson(response)
       const resolved = new URL(result.url)
-      if (resolved.protocol !== 'https:' || resolved.hostname !== 'www.tiktok.com' || resolved.username || resolved.password || resolved.port || !/^\/@[\w.-]+\/(video|photo)\/\d{1,24}\/?$/.test(resolved.pathname)) throw new Error('TikTok returned an invalid post link.')
+      if (resolved.protocol !== 'https:' || resolved.hostname !== 'www.tiktok.com' || resolved.username || resolved.password || resolved.port || !/^\/@[\w.-]+\/(video|photo)\/\d{1,24}\/?$/.test(resolved.pathname)) throw localizedError('errors.invalidResolved')
       url = resolved
     } catch (error) {
-      message.value = error.message || 'Could not resolve the TikTok link. Please try again.'
+      message.value = errorNotice(error)
       loading.value = false
       return
     }
@@ -78,8 +103,8 @@ async function download() {
     try {
       const result = await postApi('/api/photos', { id })
       photoPost.value = { id, count: result.count }
-      message.value = `${result.count} ${result.count === 1 ? 'photo is' : 'photos are'} ready to download.`
-    } catch (error) { message.value = error.message || 'Could not load photos. Please try again.' }
+      message.value = notice(result.count === 1 ? 'photo.oneReady' : 'photo.countReady', { count: result.count })
+    } catch (error) { message.value = errorNotice(error) }
     finally { loading.value = false }
     return
   }
@@ -87,7 +112,7 @@ async function download() {
   try {
     const id = url.pathname.match(/\/(\d+)\/?$/)[1]
     videoPost.value = { ...(await postApi('/api/video-info', { id })), id }
-  } catch (error) { message.value = error.message || 'Could not load video details. Please try again.' }
+  } catch (error) { message.value = errorNotice(error) }
   finally { loading.value = false }
 }
 
@@ -101,9 +126,9 @@ async function downloadVideo() {
     const result = await postApi('/api/download', { id: post.id })
     if (videoPost.value?.id === post.id) {
       readyVideoUrl.value = result.downloadUrl
-      videoMessage.value = 'Your video is ready. Tap Save video to download it.'
+      videoMessage.value = notice('video.ready')
     }
-  } catch (error) { if (videoPost.value?.id === post.id) videoMessage.value = error.message || 'Download failed. Please try again.' }
+  } catch (error) { if (videoPost.value?.id === post.id) videoMessage.value = errorNotice(error) }
   finally { downloading.value = false }
 }
 
@@ -116,9 +141,9 @@ async function downloadPhoto(index) {
     const result = await postApi('/api/photo-file', { id, index })
     if (photoPost.value?.id === id) {
       readyPhotoUrls.value = { ...readyPhotoUrls.value, [index]: result.downloadUrl }
-      photoMessage.value = `Photo ${index + 1} is ready. Tap Save photo to download it.`
+      photoMessage.value = notice('photo.ready', { index: index + 1 })
     }
-  } catch (error) { if (photoPost.value?.id === id) photoMessage.value = error.message || 'Photo download failed. Please try again.' }
+  } catch (error) { if (photoPost.value?.id === id) photoMessage.value = errorNotice(error) }
   finally { downloadingPhoto.value = null }
 }
 </script>
@@ -127,62 +152,66 @@ async function downloadPhoto(index) {
   <div class="app-shell">
     <header class="header">
       <a class="brand" href="#top"><span class="brand-icon" aria-hidden="true">↓</span> ClipSave</a>
-      <a class="header-link" href="#how">How to use</a>
+      <div class="header-actions">
+        <a class="header-link" href="#how">{{ t('navigation.how') }}</a>
+        <select v-model="locale" class="language-select" :aria-label="t('language')">
+          <option value="en">English</option>
+          <option value="kh">ភាសាខ្មែរ</option>
+        </select>
+      </div>
     </header>
 
     <main id="top">
       <section class="hero">
         <div class="container">
-          <h1>TikTok Downloader</h1>
-          <p class="subtitle">Paste a TikTok link to download a video or photos.</p>
+          <h1>{{ t('hero.title') }}</h1>
+          <p class="subtitle">{{ t('hero.subtitle') }}</p>
 
           <form class="download-card" @submit.prevent="download">
-            <label for="video-link">TikTok video or photo link</label>
+            <label for="video-link">{{ t('form.label') }}</label>
             <div class="input-row">
               <input id="video-link" v-model="link" placeholder="https://www.tiktok.com/@username/video/..." type="url" autocomplete="url" required @input="clearResults" />
-              <button class="paste-button" type="button" @click="pasteLink">Paste</button>
+              <button class="paste-button" type="button" @click="pasteLink">{{ t('form.paste') }}</button>
             </div>
             <button class="download-button" type="submit" :disabled="loading">
-              {{ loading ? 'Preparing your download...' : 'Continue' }}
+              {{ loading ? t('form.preparing') : t('form.continue') }}
             </button>
-            <p v-if="message" class="message" role="status">{{ message }}</p>
-            <p class="form-help">Use a public TikTok video or photo link, including mobile share links.</p>
-            <p class="form-help">Loading details uses 1 credit; each video uses 2 credits and each photo uses 1 credit.</p>
-            <p class="form-help">Post IDs are sent to IGramAPI to retrieve media.</p>
+            <p v-if="message" class="message" role="status">{{ t(message.key, message.params) }}</p>
+            <p class="form-help">{{ t('form.help') }}</p>
           </form>
-          <section v-if="videoPost" class="video-result" aria-label="Video details">
+          <section v-if="videoPost" class="video-result" :aria-label="t('video.details')">
             <div class="video-info">
-              <img v-if="videoPost.cover" :src="videoPost.cover" alt="Video cover" class="video-cover" />
+              <img v-if="videoPost.cover" :src="videoPost.cover" :alt="t('video.cover')" class="video-cover" />
               <div class="video-details">
-                <h2>{{ videoPost.title || 'TikTok video' }}</h2>
+                <h2>{{ videoPost.title || t('video.fallbackTitle') }}</h2>
                 <p v-if="videoPost.author" class="video-author">@{{ videoPost.author }}</p>
-                <p class="video-stats"><span>{{ formatCount(videoPost.views) }} views</span><span>{{ formatCount(videoPost.comments) }} comments</span><span>{{ formatCount(videoPost.shares) }} shares</span></p>
+                <p class="video-stats"><span>{{ t('video.views', { count: formatCount(videoPost.views) }) }}</span><span>{{ t('video.comments', { count: formatCount(videoPost.comments) }) }}</span><span>{{ t('video.shares', { count: formatCount(videoPost.shares) }) }}</span></p>
               </div>
             </div>
-            <button v-if="!readyVideoUrl" type="button" class="download-button" :disabled="downloading" @click="downloadVideo">{{ downloading ? 'Preparing video...' : 'Download' }}</button>
-            <a v-else class="download-button save-link" :href="readyVideoUrl" rel="noreferrer" download>Save video</a>
-            <p v-if="videoMessage" class="message" role="status">{{ videoMessage }}</p>
+            <button v-if="!readyVideoUrl" type="button" class="download-button" :disabled="downloading" @click="downloadVideo">{{ downloading ? t('video.preparing') : t('video.download') }}</button>
+            <a v-else class="download-button save-link" :href="readyVideoUrl" rel="noreferrer" download>{{ t('video.save') }}</a>
+            <p v-if="videoMessage" class="message" role="status">{{ t(videoMessage.key, videoMessage.params) }}</p>
           </section>
-          <section v-if="photoPost" class="photo-results" aria-label="Photos available for download">
-            <h2>Photos</h2>
+          <section v-if="photoPost" class="photo-results" :aria-label="t('photo.details')">
+            <h2>{{ t('photo.title') }}</h2>
             <div class="photo-grid">
               <article v-for="index in photoPost.count" :key="index" class="photo-item">
-                <span class="photo-label">Photo {{ index }}</span>
-                <button v-if="!readyPhotoUrls[index - 1]" type="button" class="photo-download" :disabled="downloadingPhoto !== null" @click="downloadPhoto(index - 1)">{{ downloadingPhoto === index - 1 ? 'Preparing...' : 'Download photo' }}</button>
-                <a v-else class="photo-download save-link" :href="readyPhotoUrls[index - 1]" rel="noreferrer" download>Save photo</a>
+                <span class="photo-label">{{ t('photo.label', { index }) }}</span>
+                <button v-if="!readyPhotoUrls[index - 1]" type="button" class="photo-download" :disabled="downloadingPhoto !== null" @click="downloadPhoto(index - 1)">{{ downloadingPhoto === index - 1 ? t('photo.preparing') : t('photo.download') }}</button>
+                <a v-else class="photo-download save-link" :href="readyPhotoUrls[index - 1]" rel="noreferrer" download>{{ t('photo.save') }}</a>
               </article>
             </div>
-            <p v-if="photoMessage" class="message" role="status">{{ photoMessage }}</p>
+            <p v-if="photoMessage" class="message" role="status">{{ t(photoMessage.key, photoMessage.params) }}</p>
           </section>
         </div>
       </section>
 
       <section id="how" class="how container">
-        <h2>How to download a video</h2>
+        <h2>{{ t('how.title') }}</h2>
         <div class="steps">
-          <article><span class="step-number">1</span><h3>Copy the link</h3><p>Open the video on TikTok, select Share, and copy its link.</p></article>
-          <article><span class="step-number">2</span><h3>Paste it here</h3><p>Paste the full video or photo link into the field above.</p></article>
-          <article><span class="step-number">3</span><h3>Continue</h3><p>Download a video or choose photos to save.</p></article>
+          <article><span class="step-number">1</span><h3>{{ t('how.copyTitle') }}</h3><p>{{ t('how.copyText') }}</p></article>
+          <article><span class="step-number">2</span><h3>{{ t('how.pasteTitle') }}</h3><p>{{ t('how.pasteText') }}</p></article>
+          <article><span class="step-number">3</span><h3>{{ t('how.continueTitle') }}</h3><p>{{ t('how.continueText') }}</p></article>
         </div>
       </section>
     </main>
