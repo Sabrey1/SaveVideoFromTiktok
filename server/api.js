@@ -48,9 +48,36 @@ async function getPost(id, requestOrigin) {
   throw lastError
 }
 
+async function resolveShortLink(value) {
+  let current
+  try { current = new URL(value) } catch { throw new Error('Invalid link') }
+  for (let redirects = 0; redirects < 4; redirects++) {
+    const validOrigin = current.protocol === 'https:' && !current.username && !current.password && !current.port
+    const short = ['vt.tiktok.com', 'vm.tiktok.com'].includes(current.hostname) && /^\/[A-Za-z0-9]+\/?$/.test(current.pathname)
+    const tiktokShort = ['www.tiktok.com', 'tiktok.com', 'm.tiktok.com'].includes(current.hostname) && /^\/t\/[A-Za-z0-9]+\/?$/.test(current.pathname)
+    const full = ['www.tiktok.com', 'tiktok.com', 'm.tiktok.com'].includes(current.hostname) && /^\/@[\w.-]+\/(video|photo)\/\d{1,24}\/?$/.test(current.pathname)
+    if (!validOrigin) throw new Error('Invalid link')
+    if (full) return `https://www.tiktok.com${current.pathname}`
+    if (!short && !tiktokShort) throw new Error('Invalid link')
+    const response = await fetch(current, { method: 'HEAD', signal: AbortSignal.timeout(10000), redirect: 'manual' })
+    const location = response.headers.get('location')
+    if (response.status < 300 || response.status >= 400 || !location) throw new Error('Link could not be resolved')
+    current = new URL(location, current)
+  }
+  throw new Error('Too many redirects')
+}
+
 export async function handleApi(request) {
   if (request.method !== 'GET') return error('Method not allowed.', 405)
   const url = new URL(request.url)
+  if (url.pathname === '/api/resolve') {
+    try {
+      const resolved = await resolveShortLink(url.searchParams.get('url'))
+      return Response.json({ url: resolved }, { headers: { 'Cache-Control': 'no-store' } })
+    } catch {
+      return error('Could not resolve this TikTok share link. Please try again or use the full post link.', 400)
+    }
+  }
   let id = url.searchParams.get('id')
   if (url.pathname === '/api/download') {
     try {

@@ -37,11 +37,27 @@ async function download() {
   clearResults()
   let url
   try { url = new URL(link.value.trim()) } catch { message.value = 'Enter a complete TikTok post link.'; return }
+  const postHosts = ['www.tiktok.com', 'tiktok.com', 'm.tiktok.com']
+  const shortLink = (['vt.tiktok.com', 'vm.tiktok.com'].includes(url.hostname) && /^\/[A-Za-z0-9]+\/?$/.test(url.pathname)) ||
+    (postHosts.includes(url.hostname) && /^\/t\/[A-Za-z0-9]+\/?$/.test(url.pathname))
   if (url.protocol !== 'https:' || url.username || url.password || url.port ||
-      !['www.tiktok.com', 'tiktok.com', 'm.tiktok.com'].includes(url.hostname) ||
-      !/^\/@[\w.-]+\/(video|photo)\/\d+\/?$/.test(url.pathname)) {
-    message.value = 'Enter a full TikTok video or photo link, like tiktok.com/@creator/photo/123.'
+      (!shortLink && (!postHosts.includes(url.hostname) || !/^\/@[\w.-]+\/(video|photo)\/\d{1,24}\/?$/.test(url.pathname)))) {
+    message.value = 'Enter a valid TikTok video or photo link.'
     return
+  }
+  if (shortLink) {
+    loading.value = true
+    try {
+      const response = await fetch(`/api/resolve?url=${encodeURIComponent(url.href)}`)
+      const result = await readApiJson(response)
+      const resolved = new URL(result.url)
+      if (resolved.protocol !== 'https:' || resolved.hostname !== 'www.tiktok.com' || resolved.username || resolved.password || resolved.port || !/^\/@[\w.-]+\/(video|photo)\/\d{1,24}\/?$/.test(resolved.pathname)) throw new Error('TikTok returned an invalid post link.')
+      url = resolved
+    } catch (error) {
+      message.value = error.message || 'Could not resolve the TikTok link. Please try again.'
+      loading.value = false
+      return
+    }
   }
   if (url.pathname.includes('/photo/')) {
     const id = url.pathname.match(/\/(\d+)\/?$/)[1]
@@ -113,7 +129,7 @@ async function downloadVideo() {
               {{ loading ? 'Preparing your download...' : 'Continue' }}
             </button>
             <p v-if="message" class="message" role="status">{{ message }}</p>
-            <p class="form-help">Use a full link to a public TikTok video or photo post.</p>
+            <p class="form-help">Use a public TikTok video or photo link, including mobile share links.</p>
           </form>
           <section v-if="videoPost" class="video-result" aria-label="Video details">
             <div class="video-info">

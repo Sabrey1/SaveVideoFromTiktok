@@ -19,4 +19,4 @@ Set the project root to this directory, the build command to `npm run build`, an
 
 Configure the Worker entry point as `worker.js`, the assets directory as `dist`, the assets binding as `ASSETS`, and route `/api/*` to the Worker before static assets. Set SPA fallback for non-API paths. Build the assets with `npm run build`. `worker.js` and `server/api.js` must be included in the Worker deployment; uploading `dist` alone does not deploy the API.
 
-The Pages Functions and Worker are alternative ways to serve the API. Select the one attached to your domain; do not route the same domain to two separate deployments. Full public TikTok video and photo URLs are supported; short links are not.
+The Pages Functions and Worker are alternative ways to serve the API. Select the one attached to your domain; do not route the same domain to two separate deployments. Full public TikTok video and photo URLs and TikTok mobile share links are supported.
