@@ -16,11 +16,20 @@ function mediaUrl(value) {
 async function getPost(id) {
   const url = new URL('https://www.tikwm.com/api/')
   url.searchParams.set('url', id)
-  const response = await fetch(url, { signal: AbortSignal.timeout(20000), redirect: 'error' })
-  if (!response.ok) throw new Error('Media service failed')
-  const result = await response.json()
-  if (result.code !== 0 || !result.data) throw new Error('Post unavailable')
-  return result.data
+  let lastError
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const response = await fetch(url, { signal: AbortSignal.timeout(20000), redirect: 'manual' })
+      if (!response.ok) throw new Error(`Media service returned HTTP ${response.status}`)
+      const result = await response.json()
+      if (result.code !== 0 || !result.data) throw new Error('Post unavailable')
+      return result.data
+    } catch (cause) {
+      lastError = cause
+      if (attempt === 0) await new Promise(resolve => setTimeout(resolve, 500))
+    }
+  }
+  throw lastError
 }
 
 export async function handleApi(request) {
@@ -56,7 +65,7 @@ export async function handleApi(request) {
       if (url.pathname === '/api/photos') return Response.json({ count: images.length }, { headers: { 'Cache-Control': 'no-store' } })
       const index = url.searchParams.get('index') || ''
       if (!/^\d{1,2}$/.test(index) || !images[Number(index)]) return error('Photo not found.', 404)
-      const media = await fetch(images[Number(index)], { signal: AbortSignal.timeout(30000), redirect: 'error' })
+      const media = await fetch(images[Number(index)], { signal: AbortSignal.timeout(30000), redirect: 'manual' })
       const type = media.headers.get('content-type')?.split(';')[0]
       const ext = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' }[type]
       if (!media.ok || !media.body || !ext) throw new Error('Image unavailable')
@@ -66,10 +75,11 @@ export async function handleApi(request) {
     }
     const source = mediaUrl(post.play)
     if (!source || post.images?.length) throw new Error('Video unavailable')
-    const media = await fetch(source, { signal: AbortSignal.timeout(60000), redirect: 'error' })
+    const media = await fetch(source, { signal: AbortSignal.timeout(60000), redirect: 'manual' })
     if (!media.ok || !media.body || !media.headers.get('content-type')?.startsWith('video/')) throw new Error('Video unavailable')
     return new Response(media.body, { headers: { 'Content-Type': 'video/mp4', 'Content-Disposition': `attachment; filename="tiktok-${id}.mp4"`, 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' } })
-  } catch {
+  } catch (cause) {
+    console.error('Media request failed', { route: url.pathname, error: cause instanceof Error ? cause.message : 'Unknown error' })
     return error('Could not retrieve this post. Please try again later.')
   }
 }
