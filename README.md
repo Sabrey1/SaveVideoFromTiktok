@@ -11,6 +11,10 @@ npm run dev
 
 Set `IGRAMAPI_KEY` in an ignored `.env.local` file for Vite local development, then restart Vite. Use an ignored `.dev.vars` file when testing locally with Wrangler. Never commit the key or put it in frontend code. Vite and Cloudflare use the same API implementation; Python and yt-dlp are not required.
 
+Alternatively, set `COBALT_API_URL` to a Cobalt instance in `.env.local` and restart Vite. If the instance requires a key, also set `COBALT_API_KEY`. When configured, Cobalt takes precedence over IGramAPI. Cobalt does not provide TikTok statistics, so the app hides them. Video links are reused from the initial request and can expire; submit the post again if necessary. Photo links are requested again when each download is prepared. See [COBALT.md](COBALT.md) for setup and deployment details.
+
+An address such as `http://192.168.56.102:9000/` is private to its network: a deployed Cloudflare Worker cannot connect to it. Production needs a reachable HTTPS Cobalt instance; its returned download links must also be reachable by the visitor. An HTTPS website cannot reliably use HTTP download links due to browser mixed-content restrictions.
+
 The video details and photo list each use one successful metadata request. Each video download uses two credits and each photo download uses one. Photo previews do not automatically spend download credits. Anyone able to use the public website can consume the account's credits; configure appropriate Cloudflare rate limits or access restrictions before broad public use.
 
 ## Cloudflare Pages

@@ -26,4 +26,4 @@ function localApi(env) {
   return { name: 'local-api', configureServer: configure, configurePreviewServer: configure }
 }
 
-export default defineConfig(({ mode }) => ({ plugins: [vue(), localApi(loadEnv(mode, process.cwd(), 'IGRAMAPI_'))] }))
+export default defineConfig(({ mode }) => ({ plugins: [vue(), localApi({ ...loadEnv(mode, process.cwd(), 'IGRAMAPI_'), ...loadEnv(mode, process.cwd(), 'COBALT_') })] }))

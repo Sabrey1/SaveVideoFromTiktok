@@ -45,6 +45,7 @@
     "limit": "The download service has reached its credit or request limit. Please try again later.",
     "unavailable": "This post or requested media is unavailable.",
     "temporary": "The download service is temporarily unavailable.",
+    "cobaltFetch": "Cobalt could not fetch this post from TikTok. Please try another post or try again later.",
     "photosMissing": "No photos found for this post.",
     "notVideo": "This is not a video post.",
     "invalidFile": "The download service returned an invalid file link.",

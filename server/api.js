@@ -34,6 +34,69 @@ class ProviderError extends Error {
   constructor(message, status) { super(message); this.status = status }
 }
 
+function tiktokPost(value, id) {
+  try {
+    const url = new URL(value)
+    if (url.protocol !== 'https:' || url.username || url.password || url.port ||
+        !['www.tiktok.com', 'tiktok.com', 'm.tiktok.com'].includes(url.hostname) ||
+        !/^\/@[\w.-]+\/(video|photo)\/\d{1,24}\/?$/.test(url.pathname) ||
+        url.pathname.match(/\/(\d+)\/?$/)?.[1] !== id) return null
+    return `https://www.tiktok.com${url.pathname}`
+  } catch { return null }
+}
+
+function cobaltFileUrl(value, instanceUrl) {
+  try {
+    const url = new URL(value)
+    const instance = new URL(instanceUrl)
+    if (url.username || url.password) return null
+    // A self-hosted Cobalt may return an HTTP tunnel on its configured LAN origin.
+    if (url.origin === instance.origin && url.pathname === '/tunnel') return url.href
+    return safeExternalUrl(value)
+  } catch { return null }
+}
+
+async function cobaltRequest(env, postUrl) {
+  const instance = new URL(env.COBALT_API_URL)
+  if (!['http:', 'https:'].includes(instance.protocol) || instance.username || instance.password) throw new Error('Invalid Cobalt configuration')
+  const headers = { Accept: 'application/json', 'Content-Type': 'application/json' }
+  if (env.COBALT_API_KEY) headers.Authorization = `Api-Key ${env.COBALT_API_KEY}`
+  const response = await fetch(instance.href, {
+    method: 'POST', headers, body: JSON.stringify({ url: postUrl }),
+    redirect: 'manual', signal: AbortSignal.timeout(30000),
+  })
+  if (response.status === 429) throw new ProviderError('The download service has reached its credit or request limit. Please try again later.', 429)
+  if (response.status === 401 || response.status === 403) throw new ProviderError('The download service API key is invalid or not authorized.', 503)
+  let result
+  try { result = await response.json() } catch { throw new ProviderError('The download service is temporarily unavailable.', 502) }
+  if (result?.status === 'error' && result.error?.code === 'error.api.fetch.fail' && result.error?.context?.service === 'tiktok') {
+    throw new ProviderError('Cobalt could not fetch this post from TikTok. Please try another post or try again later.', 502)
+  }
+  if (!response.ok) throw new ProviderError('The download service is temporarily unavailable.', 502)
+  if (result?.status === 'error') throw new ProviderError('This post or requested media is unavailable.', 404)
+  return result
+}
+
+async function handleCobalt(path, input, env) {
+  const postUrl = tiktokPost(input.url, input.id)
+  if (!postUrl) return error('Invalid post URL.', 400)
+  if (path === '/api/photo-file' && (!Number.isInteger(input.index) || input.index < 0 || input.index >= MAX_PHOTOS)) return error('Invalid photo index.', 400)
+  const result = await cobaltRequest(env, postUrl)
+  if (path === '/api/photos' || path === '/api/photo-file') {
+    const photos = result.status === 'picker' && Array.isArray(result.picker) ? result.picker.filter(item => item?.type === 'photo').slice(0, MAX_PHOTOS) : []
+    if (!photos.length) throw new ProviderError('No photos found for this post.', 404)
+    if (path === '/api/photos') return Response.json({ count: photos.length }, { headers: { 'Cache-Control': 'no-store' } })
+    const downloadUrl = cobaltFileUrl(photos[input.index]?.url, env.COBALT_API_URL)
+    if (!downloadUrl) throw new ProviderError('The download service returned an invalid file link.', 502)
+    return Response.json({ downloadUrl }, { headers: { 'Cache-Control': 'no-store' } })
+  }
+  if (!['redirect', 'tunnel'].includes(result.status)) throw new ProviderError('This post or requested media is unavailable.', 404)
+  const downloadUrl = cobaltFileUrl(result.url, env.COBALT_API_URL)
+  if (!downloadUrl) throw new ProviderError('The download service returned an invalid file link.', 502)
+  if (path === '/api/video-info') return Response.json({ title: '', author: '', views: null, comments: null, shares: null, cover: null, downloadUrl }, { headers: { 'Cache-Control': 'no-store' } })
+  return Response.json({ downloadUrl }, { headers: { 'Cache-Control': 'no-store' } })
+}
+
 async function igramRequest(key, path, options = {}) {
   let response
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -102,6 +165,14 @@ export async function handleApi(request, env = {}) {
   } catch { return error('Invalid request.', 400) }
   const id = input?.id
   if (typeof id !== 'string' || !/^\d{1,24}$/.test(id)) return error('Invalid post ID.', 400)
+  if (env.COBALT_API_URL) {
+    try { return await handleCobalt(url.pathname, input, env) }
+    catch (cause) {
+      if (cause instanceof ProviderError) return error(cause.message, cause.status)
+      console.error('Cobalt request failed', { route: url.pathname, error: cause?.name || 'Unknown error' })
+      return error('Could not retrieve this post. Please try again later.')
+    }
+  }
   if (!env.IGRAMAPI_KEY) return error('The download service API key has not been configured.', 503)
   const key = env.IGRAMAPI_KEY
   try {

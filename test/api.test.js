@@ -99,3 +99,48 @@ test('mobile redirects may only reach TikTok post URLs', async () => {
     assert.deepEqual(await response.json(), { url: 'https://www.tiktok.com/@creator/photo/123' })
   } finally { fetchMock.mock.restore() }
 })
+
+test('Cobalt accepts a validated post URL and returns a local tunnel link', async () => {
+  const cobaltEnv = { COBALT_API_URL: 'http://192.168.56.102:9000/', COBALT_API_KEY: 'secret' }
+  const fetchMock = mock.method(globalThis, 'fetch', async (url, options) => {
+    assert.equal(String(url), cobaltEnv.COBALT_API_URL)
+    assert.equal(options.headers.Authorization, 'Api-Key secret')
+    assert.deepEqual(JSON.parse(options.body), { url: 'https://www.tiktok.com/@creator/video/123' })
+    return Response.json({ status: 'tunnel', url: 'http://192.168.56.102:9000/tunnel?token=abc' })
+  })
+  try {
+    const body = { id: '123', url: 'https://www.tiktok.com/@creator/video/123?tracking=1' }
+    const info = await handleApi(request('/api/video-info', body), cobaltEnv)
+    const details = await info.json()
+    assert.equal(details.views, null)
+    assert.equal(details.downloadUrl, 'http://192.168.56.102:9000/tunnel?token=abc')
+    const result = await handleApi(request('/api/download', body), cobaltEnv)
+    assert.deepEqual(await result.json(), { downloadUrl: 'http://192.168.56.102:9000/tunnel?token=abc' })
+    assert.equal((await handleApi(request('/api/download', { ...body, url: 'https://evil.example/@creator/video/123' }), cobaltEnv)).status, 400)
+    assert.equal(fetchMock.mock.calls.length, 2)
+  } finally { fetchMock.mock.restore() }
+})
+
+test('Cobalt photo picker is filtered and invalid links are rejected', async () => {
+  const cobaltEnv = { COBALT_API_URL: 'https://cobalt.example/' }
+  const fetchMock = mock.method(globalThis, 'fetch', async () => Response.json({ status: 'picker', picker: [
+    { type: 'video', url: 'https://files.example.com/video.mp4' },
+    { type: 'photo', url: 'https://files.example.com/photo.jpg' },
+    { type: 'photo', url: 'http://127.0.0.1/private' },
+  ] }))
+  try {
+    const body = { id: '123', url: 'https://www.tiktok.com/@creator/photo/123' }
+    assert.deepEqual(await (await handleApi(request('/api/photos', body), cobaltEnv)).json(), { count: 2 })
+    assert.deepEqual(await (await handleApi(request('/api/photo-file', { ...body, index: 0 }), cobaltEnv)).json(), { downloadUrl: 'https://files.example.com/photo.jpg' })
+    assert.equal((await handleApi(request('/api/photo-file', { ...body, index: 1 }), cobaltEnv)).status, 502)
+  } finally { fetchMock.mock.restore() }
+})
+
+test('Cobalt TikTok fetch failures are surfaced even on an HTTP error', async () => {
+  const fetchMock = mock.method(globalThis, 'fetch', async () => Response.json({ status: 'error', error: { code: 'error.api.fetch.fail', context: { service: 'tiktok' } } }, { status: 500 }))
+  try {
+    const response = await handleApi(request('/api/video-info', { id: '123', url: 'https://www.tiktok.com/@creator/video/123' }), { COBALT_API_URL: 'https://cobalt.example/' })
+    assert.equal(response.status, 502)
+    assert.match(await response.text(), /Cobalt could not fetch this post from TikTok/)
+  } finally { fetchMock.mock.restore() }
+})

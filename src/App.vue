@@ -38,6 +38,7 @@ const apiErrors = {
   'The download service has reached its credit or request limit. Please try again later.': 'errors.limit',
   'This post or requested media is unavailable.': 'errors.unavailable',
   'The download service is temporarily unavailable.': 'errors.temporary',
+  'Cobalt could not fetch this post from TikTok. Please try another post or try again later.': 'errors.cobaltFetch',
   'No photos found for this post.': 'errors.photosMissing',
   'This is not a video post.': 'errors.notVideo',
   'The download service returned an invalid file link.': 'errors.invalidFile',
@@ -101,8 +102,8 @@ async function download() {
     const id = url.pathname.match(/\/(\d+)\/?$/)[1]
     loading.value = true
     try {
-      const result = await postApi('/api/photos', { id })
-      photoPost.value = { id, count: result.count }
+      const result = await postApi('/api/photos', { id, url: url.href })
+      photoPost.value = { id, url: url.href, count: result.count }
       message.value = notice(result.count === 1 ? 'photo.oneReady' : 'photo.countReady', { count: result.count })
     } catch (error) { message.value = errorNotice(error) }
     finally { loading.value = false }
@@ -111,7 +112,7 @@ async function download() {
   loading.value = true
   try {
     const id = url.pathname.match(/\/(\d+)\/?$/)[1]
-    videoPost.value = { ...(await postApi('/api/video-info', { id })), id }
+    videoPost.value = { ...(await postApi('/api/video-info', { id, url: url.href })), id, url: url.href }
   } catch (error) { message.value = errorNotice(error) }
   finally { loading.value = false }
 }
@@ -123,7 +124,7 @@ async function downloadVideo() {
   readyVideoUrl.value = ''
   downloading.value = true
   try {
-    const result = await postApi('/api/download', { id: post.id })
+    const result = post.downloadUrl ? { downloadUrl: post.downloadUrl } : await postApi('/api/download', { id: post.id, url: post.url })
     if (videoPost.value?.id === post.id) {
       readyVideoUrl.value = result.downloadUrl
       videoMessage.value = notice('video.ready')
@@ -138,7 +139,7 @@ async function downloadPhoto(index) {
   photoMessage.value = ''
   downloadingPhoto.value = index
   try {
-    const result = await postApi('/api/photo-file', { id, index })
+    const result = await postApi('/api/photo-file', { id, url: photoPost.value.url, index })
     if (photoPost.value?.id === id) {
       readyPhotoUrls.value = { ...readyPhotoUrls.value, [index]: result.downloadUrl }
       photoMessage.value = notice('photo.ready', { index: index + 1 })
@@ -185,7 +186,7 @@ async function downloadPhoto(index) {
               <div class="video-details">
                 <h2>{{ videoPost.title || t('video.fallbackTitle') }}</h2>
                 <p v-if="videoPost.author" class="video-author">@{{ videoPost.author }}</p>
-                <p class="video-stats"><span>{{ t('video.views', { count: formatCount(videoPost.views) }) }}</span><span>{{ t('video.comments', { count: formatCount(videoPost.comments) }) }}</span><span>{{ t('video.shares', { count: formatCount(videoPost.shares) }) }}</span></p>
+                <p v-if="videoPost.views !== null" class="video-stats"><span>{{ t('video.views', { count: formatCount(videoPost.views) }) }}</span><span>{{ t('video.comments', { count: formatCount(videoPost.comments) }) }}</span><span>{{ t('video.shares', { count: formatCount(videoPost.shares) }) }}</span></p>
               </div>
             </div>
             <button v-if="!readyVideoUrl" type="button" class="download-button" :disabled="downloading" @click="downloadVideo">{{ downloading ? t('video.preparing') : t('video.download') }}</button>
